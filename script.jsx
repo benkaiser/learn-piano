@@ -85,6 +85,9 @@ class App extends React.Component {
 
   _play = () => {
     MIDIPlayer.restart();
+    this.setState({
+      notesBeingPlayed: []
+    });
   }
 
   _pause = () => {
@@ -96,12 +99,17 @@ class App extends React.Component {
   }
 }
 
+const PIANO_DRAW_OFFSET = 21;
+const HEIGHT_PER_SECOND = 100;
+
 class NoteVisualizer extends React.Component {
   constructor() {
     super();
     this._notesRef = React.createRef();
     this._pianoRef = React.createRef();
+    this._canvasScrollerRef = React.createRef();
     this._render = this._render.bind(this);
+    this._scrollNotes = this._scrollNotes.bind(this);
   }
 
   componentWillReceiveProps() {
@@ -111,8 +119,10 @@ class NoteVisualizer extends React.Component {
   render() {
     return (
       <React.Fragment>
-        <canvas ref={this._notesRef} height={ (window.innerHeight - 300) + 'px' } width="988px" />
-        <canvas ref={this._pianoRef} height="72px" width="988px" />
+        <div className='canvasScroller' ref={this._canvasScrollerRef} style={ ({ maxHeight: this._canvasDisplayHeight() + 'px', width: this._calculateWidth() })} >
+          <canvas ref={this._notesRef} height={ this._noteCanvasHeight() + 'px' } width={this._calculateWidth()} />
+        </div>
+        <canvas ref={this._pianoRef} height={ this._keyboardHeight() } width={ this._calculateWidth() } className='pianoCanvas' />
       </React.Fragment>
     );
   }
@@ -120,17 +130,73 @@ class NoteVisualizer extends React.Component {
   componentDidMount() {
     this._notesContext = this._notesRef.current.getContext('2d');
     this._pianoContext = this._pianoRef.current.getContext('2d');
+    this._notesRef.current.style.marginTop = -1 * (this._noteCanvasHeight() - this._canvasDisplayHeight()) + 'px';
+    this._redrawNoteCanvas();
     requestAnimationFrame(this._render);
+    requestAnimationFrame(this._scrollNotes);
   }
 
   _render() {
-    this._notesContext.fillRect(10, 10, 10, 10);
-    this._pianoContext.fillRect(10, 10, 10, 10);
     this._drawPiano(this._pianoContext, this._pianoRef.current.height, this._pianoRef.current.width, this.props.notesBeingPlayed);
   }
 
-  _drawPiano(context, canvasHeight, canvasWidth, RedKeyArray) {
-    RedKeyArray = RedKeyArray.map(key => key - 21);
+  _scrollNotes() {
+    this._notesRef.current.style.marginTop = -1 * (this._noteCanvasHeight() - this._canvasDisplayHeight() - MIDIPlayer.currentTime() / 1000 * HEIGHT_PER_SECOND) + 'px';
+    requestAnimationFrame(this._scrollNotes);
+  }
+
+  _calculateWidth() {
+    return window.innerWidth - 20;
+  }
+
+  _keyboardHeight() {
+    return Math.round(window.innerWidth / 16);
+  }
+
+  _noteCanvasHeight() {
+    return (MIDIPlayer.totalPlayTime / 1000 * HEIGHT_PER_SECOND) + this._canvasDisplayHeight();
+  }
+
+  _canvasDisplayHeight() {
+    return window.innerHeight - this._keyboardHeight() - 170;
+  }
+
+  _redrawNoteCanvas() {
+    const ctx = this._notesContext;
+    const width = this._notesRef.current.width;
+    var TOTAL_KEYS = 88;
+    var NUM_WHITE_KEYS = 52;
+    var NUM_BLACK_KEYS = TOTAL_KEYS - NUM_WHITE_KEYS;
+    var WHITE_KEY_WIDTH = (width / NUM_WHITE_KEYS);
+    var BLACK_KEY_WIDTH = WHITE_KEY_WIDTH * .75
+    const TOTAL_HEIGHT = this._noteCanvasHeight();
+
+    // draw the background
+    ctx.fillStyle = 'rgb(0,0,0)';
+    ctx.fillRect(0, 0, width, TOTAL_HEIGHT);
+
+    // draw lines between all white keys
+    for (let index = 0; index < NUM_WHITE_KEYS; index++) {
+      ctx.fillStyle = 'rgb(38, 38, 38)';
+      ctx.fillRect(0 + (index * WHITE_KEY_WIDTH), 0, 1, TOTAL_HEIGHT);
+    }
+
+    // calculate note positions
+    const noteUnits = MIDIPlayer.noteUnits();
+    noteUnits.forEach(noteUnit => {
+      const index = noteUnit.note - 21;
+      const keyInfo = AbsoluteToKeyInfo(index);
+      ctx.fillStyle = colorForNote(noteUnit.note);
+      let xOffset = keyInfo.White_Index * WHITE_KEY_WIDTH;
+      if (keyInfo.isBlack) {
+        xOffset += WHITE_KEY_WIDTH - (BLACK_KEY_WIDTH / 2);
+      }
+      ctx.roundRect(xOffset, TOTAL_HEIGHT - (noteUnit.endTime / 1000 * HEIGHT_PER_SECOND), keyInfo.isBlack ? BLACK_KEY_WIDTH : WHITE_KEY_WIDTH, (noteUnit.endTime - noteUnit.startTime) / 1000 * HEIGHT_PER_SECOND, 3).fill();
+    });
+  }
+
+  _drawPiano(context, canvasHeight, canvasWidth, SelectedKeyArray) {
+    SelectedKeyArray = SelectedKeyArray.map(key => key - PIANO_DRAW_OFFSET);
 
     // general characteristics of a piano
 
@@ -164,82 +230,55 @@ class NoteVisualizer extends React.Component {
 
     }
 
-    // draws a back key, based on whiteKeyIndex, where 0 <= WhiteKeyIndex < 52
-    function drawBlackKey(whiteKeyIndex, shouldBeRed = false) {
+    function DrawRectWithSideBorder(X, Y, Width, Height, Color1, Color2) {
 
-      if (!shouldBeRed) {
+      //draw border
+      ctx.fillStyle = Color1;
+      ctx.fillRect(X, Y, Width, Height);
 
-        const C1 = "rgb(0,0,0)";			// black
+      //draw inside
+      ctx.fillStyle = Color2;
+      ctx.fillRect(X + 1, Y, Width - 2, Height);
+
+    }
+
+    // draws a back key, based on WhiteKeyIndex, where 0 <= WhiteKeyIndex < 52
+    function drawBlackKey(WhiteKeyIndex, shouldBeSelected = false, originalIndex) {
+      if (!shouldBeSelected) {
+        const C1 = "rgb(0,0,0)";
         const C2 = "rgb(50,50,50)";		// ??
-
-        DrawRectWithBorder(X_BORDER + ((whiteKeyIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2), Y_BORDER, BLACK_KEY_WIDTH, BLACK_KEY_HEIGHT, C1, C2);
-
+        DrawRectWithBorder(X_BORDER + ((WhiteKeyIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2), Y_BORDER, BLACK_KEY_WIDTH, BLACK_KEY_HEIGHT, C1, C2);
       }
       else {
-
-        const C1 = "rgb(0,0,0)";			// black
-        const C2 = "rgb(255,0,0)";		// red
-
-        DrawRectWithBorder(X_BORDER + ((whiteKeyIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2), Y_BORDER, BLACK_KEY_WIDTH, BLACK_KEY_HEIGHT, C1, C2);
-
+        const C1 = "rgb(0,0,0)";
+        const C2 = colorForNote(originalIndex + 21);
+        DrawRectWithBorder(X_BORDER + ((WhiteKeyIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2), Y_BORDER, BLACK_KEY_WIDTH, BLACK_KEY_HEIGHT, C2, C2);
       }
-
     }
 
-    function DrawWhiteKey(WhiteKeyIndex, shouldBeRed = false) {
-
-      if (!shouldBeRed) {
-
-        const C1 = "rgb(0,0,0)";			// black
-        const C2 = "rgb(255,255,255)";	// white
-
+    function DrawWhiteKey(WhiteKeyIndex, shouldBeSelected = false, originalIndex) {
+      if (!shouldBeSelected) {
+        const C1 = "rgb(0,0,0)";
+        const C2 = "rgb(255,255,255)";
         DrawRectWithBorder(X_BORDER + (WhiteKeyIndex * WHITE_KEY_WIDTH), Y_BORDER, WHITE_KEY_WIDTH, height, C1, C2);
-
       } else {
-
-        const C1 = "rgb(0,0,0)";			// black
-        const C2 = "rgb(255,0,0)";		// red
-
-        DrawRectWithBorder(X_BORDER + (WhiteKeyIndex * WHITE_KEY_WIDTH), Y_BORDER, WHITE_KEY_WIDTH, height, C1, C2);
-
+        const C1 = "rgb(0,0,0)";
+        const C2 = colorForNote(originalIndex + 21);
+        DrawRectWithBorder(X_BORDER + (WhiteKeyIndex * WHITE_KEY_WIDTH), Y_BORDER, WHITE_KEY_WIDTH, height, C2, C2);
       }
     }
 
-    function keyType(isBlack, White_Index) {
-      this.isBlack = isBlack;
-      this.White_Index = White_Index
-    }
-
-    function AbsoluteToKeyInfo(AbsoluteNoteNum) {
-
-      var KeyLookupTable = new Array(TOTAL_KEYS);
-
-      KeyLookupTable[0] = new keyType(false, 0);			// a
-      KeyLookupTable[1] = new keyType(true, 0);			// a#
-      KeyLookupTable[2] = new keyType(false, 1);			// b
-      let base = 3;
-
-      const NumOctaves = 8
-      for (let counter = 0; counter < NumOctaves; counter++) {
-        let octave_offset = 7 * counter;
-
-        KeyLookupTable[base + 0] = new keyType(false, octave_offset + 2); // c
-        KeyLookupTable[base + 1] = new keyType(true, octave_offset + 2); // c#
-        KeyLookupTable[base + 2] = new keyType(false, octave_offset + 3); // d
-        KeyLookupTable[base + 3] = new keyType(true, octave_offset + 3); // d#
-        KeyLookupTable[base + 4] = new keyType(false, octave_offset + 4); // e
-        KeyLookupTable[base + 5] = new keyType(false, octave_offset + 5); // f
-        KeyLookupTable[base + 6] = new keyType(true, octave_offset + 5); // f#
-        KeyLookupTable[base + 7] = new keyType(false, octave_offset + 6); // g
-        KeyLookupTable[base + 8] = new keyType(true, octave_offset + 6); // g#
-        KeyLookupTable[base + 9] = new keyType(false, octave_offset + 7); // a
-        KeyLookupTable[base + 10] = new keyType(true, octave_offset + 7)  // a#
-        KeyLookupTable[base + 11] = new keyType(false, octave_offset + 8); // b
-
-        base += 12;
+    function drawKeyColor(KeyLookup, originalIndex) {
+      const WhiteKeyIndex = KeyLookup.White_Index;
+      if (KeyLookup.isBlack) {
+        const C1 = "rgb(50,50,50)";
+        const C2 = colorForNote(originalIndex + 21);
+        DrawRectWithSideBorder(X_BORDER + ((WhiteKeyIndex + 1) * WHITE_KEY_WIDTH) - (BLACK_KEY_WIDTH / 2), Y_BORDER, BLACK_KEY_WIDTH, 10, C1, C2);
+      } else {
+        const C1 = "rgb(50,50,50)";
+        const C2 = colorForNote(originalIndex + 21);
+        DrawRectWithSideBorder(X_BORDER + (WhiteKeyIndex * WHITE_KEY_WIDTH), Y_BORDER, WHITE_KEY_WIDTH, 10, C1, C2);
       }
-
-      return KeyLookupTable[AbsoluteNoteNum];
     }
 
 
@@ -250,20 +289,22 @@ class NoteVisualizer extends React.Component {
     }
 
 
-    // now draw specially white keys that need to be red...
-    // just loop through all the RedKeyArray
+    // now draw specially white keys that need to be selected...
+    // just loop through all the SelectedKeyArray
     for (let index = 0; index <= TOTAL_KEYS; index++) {
-      // and if we find any white keys that are supposed to be red, then draw them in red...
-      if (RedKeyArray.includes(index)) {
-        let KeyLookup = AbsoluteToKeyInfo(index);
+      let KeyLookup = AbsoluteToKeyInfo(index);
+      // and if we find any white keys that are supposed to be colored, then draw them in colored...
+      if (SelectedKeyArray.includes(index)) {
         if (!KeyLookup.isBlack)
-          DrawWhiteKey(KeyLookup.White_Index, true);
+          DrawWhiteKey(KeyLookup.White_Index, true, index);
+      } else {
+        drawKeyColor(KeyLookup, index);
       }
     }
 
-    // draw in lowest a# manually (making sure to draw it red if it should be)
-    const LowestShouldBeRed = RedKeyArray.includes(1);
-    drawBlackKey(0, LowestShouldBeRed);
+    // draw in lowest a# manually (making sure to draw it colored if it should be)
+    const LowestshouldBeSelected = SelectedKeyArray.includes(1);
+    drawBlackKey(0, LowestshouldBeSelected);
 
     // now draw all the rest of the black keys...
     // loop through all 7 octaves
@@ -282,14 +323,16 @@ class NoteVisualizer extends React.Component {
     }
 
 
-    // now draw specially black keys that need to be red...
-    // just loop through all the RedKeyArray
+    // now draw specially black keys that need to be colored...
+    // just loop through all the SelectedKeyArray
     for (let index = 0; index <= 88; index++) {
-      // and if we find any black keys that are supposed to be red, then draw them in red...
-      if (RedKeyArray.includes(index)) {
-        let KeyLookup = AbsoluteToKeyInfo(index);
+      // and if we find any black keys that are supposed to be colored, then draw them in color...
+      let KeyLookup = AbsoluteToKeyInfo(index);
+      if (SelectedKeyArray.includes(index)) {
         if (KeyLookup.isBlack)
-          drawBlackKey(KeyLookup.White_Index, true);
+          drawBlackKey(KeyLookup.White_Index, true, index);
+      } else if (KeyLookup.isBlack) {
+        drawKeyColor(KeyLookup, index);
       }
     }
   }

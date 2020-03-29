@@ -23,12 +23,43 @@ class MIDIPlayerClass {
         });
       }
     });
+    this.totalPlayTime = this._notes[this._notes.length - 1].time;
+  }
+
+  noteUnits() {
+    const units = [];
+    const noteStorage = {};
+    this._notes.forEach(note => {
+      if (note.subtype === 'noteOn') {
+        noteStorage[note.note] = {
+          startTime: note.time,
+          velocity: note.velocity,
+          note: note.note
+        };
+      } else if (note.subtype === 'noteOff' && noteStorage[note.note]) {
+        noteStorage[note.note].endTime = note.time;
+        units.push(noteStorage[note.note]);
+        delete noteStorage[note.note];
+      }
+    });
+    return units;
   }
 
   changePlaySpeed(playSpeed) {
     for (let index = 0; index < this._notes.length; index++) {
       this._notes[index].time = this._notes[index].originalTime / playSpeed;
     }
+    this.totalPlayTime = this._notes[this._notes.length - 1].time;
+  }
+
+  currentTime() {
+    if (this._songStart) {
+      if (this._pauseOffset) {
+        return this._pauseOffset - this._songStart;
+      }
+      return performance.now() - this._songStart;
+    }
+    return 0;
   }
 
   restart() {
