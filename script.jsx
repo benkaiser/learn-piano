@@ -1,4 +1,5 @@
 const TRIMMED_COUNT = 50;
+const RERENDER_WAIT = 300;
 
 class App extends React.Component {
   constructor() {
@@ -25,9 +26,55 @@ class App extends React.Component {
       MIDIPlayer.changePlaySpeed(playspeed / 64);
     }
     MIDIPlayer.onNotePlayed = this.onSongNotePlayed.bind(this);
-    this.state = { playspeed, notesBeingPlayed: [], playType: 'both' };
+    this.state = {
+      playspeed,
+      notesBeingPlayed: [],
+      playType: 'both',
+      lowNote: 21,
+      highNote: 108,
+      noteVisualizerKey: 0,
+    };
     this._notesPlayed = [];
     this._waitingOnNotes = [];
+  }
+
+  render(){
+    return (
+      <div>
+        <h1>
+          Learn Piano
+        </h1>
+        <p>Current Play Speed: { (this.state.playspeed / 64 * 100).toFixed(0) }%</p>
+        <p>
+          <button>Dead button to enable keyboard</button>
+          <button onClick={this._play}>Play</button>
+          <button onClick={this._pause}>Pause</button>
+          <button onClick={this._resume}>Resume</button>
+          <input type='file' onChange={this._onMidiFileSelected} />
+          <button onClick={this._changePlayType}>Playing { this.state.playType }</button>
+          { this.state.playType !== 'both' &&
+            <button disabled={this.state.nextNoteMarksSplit} onClick={this._markSplitWithNextNote}>Mark Split With Next Note: { MIDI.noteToKey[this.state.noteSplit] }</button>
+          }
+          <button disabled={this.state.markExtemeties} onClick={this._markExtemeties}>Mark Bottom and Top Notes: { this.state.lowNote && MIDI.noteToKey[this.state.lowNote] } { this.state.highNote && MIDI.noteToKey[this.state.highNote] }</button>
+        </p>
+        <div>
+          <NoteVisualizer key={this.state.noteVisualizerKey} notesBeingPlayed={ this.state.notesBeingPlayed } />
+        </div>
+      </div>
+    );
+  }
+
+  componentDidMount() {
+    window.addEventListener('resize', () => {
+      this._renderTimeout && clearTimeout(this._renderTimeout);
+      this._renderTimeout = setTimeout(this._rerenderNotes, RERENDER_WAIT);
+    });
+  }
+
+  _rerenderNotes = () => {
+    this.setState({
+      noteVisualizerKey: this.state.noteVisualizerKey + 1
+    });
   }
 
   onMidiMessage = (midiMessage) => {
@@ -42,6 +89,19 @@ class App extends React.Component {
           nextNoteMarksSplit: false,
           noteSplit: midiMessage.data[1]
         });
+      }
+      if (this.state.markExtemeties) {
+        if (!this.state.lowNoteMarked) {
+          this.setState({
+            lowNote: midiMessage.data[1],
+            lowNoteMarked: true
+          });
+        } else {
+          this.setState({
+            highNote: midiMessage.data[1],
+            markExtemeties: false
+          });
+        }
       }
     } else if (midiMessage.data[0] === 128) {
       MIDI.noteOff(0, midiMessage.data[1], 0);
@@ -90,9 +150,10 @@ class App extends React.Component {
         MIDIPlayer.noteOff(0, note.note, note.velocity, 0);
       }
     } else {
-      if (this.state.playType === 'both' ||
+      if ((this.state.playType === 'both' ||
         this.state.playType === 'left' && note.note <= this.state.noteSplit ||
-        this.state.playType === 'right' && note.note >= this.state.noteSplit) {
+        this.state.playType === 'right' && note.note >= this.state.noteSplit) && this._noteInKeyboard(note.note)) {
+
         this._waitOnNote(note.note);
       } else {
         MIDIPlayer.noteOn(0, note.note, note.velocity, 0);
@@ -101,32 +162,10 @@ class App extends React.Component {
         notesBeingPlayed: this.state.notesBeingPlayed.concat(note.note)
       });
     }
-    // console.log(note);
   }
 
-  render(){
-    return (
-      <div>
-        <h1>
-          Learn Piano
-        </h1>
-        <p>Current Play Speed: { (this.state.playspeed / 64 * 100).toFixed(0) }%</p>
-        <p>
-          <button>Dead button to enable keyboard</button>
-          <button onClick={this._play}>Play</button>
-          <button onClick={this._pause}>Pause</button>
-          <button onClick={this._resume}>Resume</button>
-          <input type='file' onChange={this._onMidiFileSelected} />
-          <button onClick={this._changePlayType}>Playing { this.state.playType }</button>
-          { this.state.playType !== 'both' &&
-            <button onClick={this._markSplitWithNextNote}>Mark Split With Next Note: { MIDI.noteToKey[this.state.noteSplit] }</button>
-          }
-        </p>
-        <div>
-          <NoteVisualizer key={MIDIPlayer.noteUnits().length} notesBeingPlayed={ this.state.notesBeingPlayed } />
-        </div>
-      </div>
-    );
+  _noteInKeyboard = (note) => {
+    return note >= this.state.lowNote && note <= this.state.highNote;
   }
 
   _play = () => {
@@ -171,11 +210,11 @@ class App extends React.Component {
     reader.addEventListener("load", () => {
       MIDI.Player.loadFile(reader.result);
       this._notesPlayed = [];
-      this._waitingOnNotes = [];  
+      this._waitingOnNotes = [];
       MIDIPlayer.init();
-      this.setState({});
+      this._rerenderNotes();
     }, false);
-  
+
     if (file) {
       reader.readAsDataURL(file);
     }
@@ -184,6 +223,15 @@ class App extends React.Component {
   _markSplitWithNextNote = () => {
     this.setState({
       nextNoteMarksSplit: true
+    });
+  }
+
+  _markExtemeties = () => {
+    this.setState({
+      markExtemeties: true,
+      lowNoteMarked: false,
+      lowNote: 21,
+      highNote: 108
     });
   }
 }
