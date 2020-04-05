@@ -25,18 +25,23 @@ class App extends React.Component {
       MIDIPlayer.changePlaySpeed(playspeed / 64);
     }
     MIDIPlayer.onNotePlayed = this.onSongNotePlayed.bind(this);
-    this.state = { playspeed, notesBeingPlayed: [] };
+    this.state = { playspeed, notesBeingPlayed: [], playType: 'both' };
+    this._notesPlayed = [];
+    this._waitingOnNotes = [];
   }
 
   onMidiMessage = (midiMessage) => {
-    console.log(midiMessage.data);
     if (midiMessage.data[0] === 144) {
       MIDI.noteOn(0, midiMessage.data[1], midiMessage.data[2], 0);
       this.setState({
         notesBeingPlayed: this.state.notesBeingPlayed.concat(midiMessage.data[1])
       });
-      if (midiMessage.data[1] === MIDI.keyToNote[this.state.noteToPlay]) {
-        this._play();
+      this._playNote(midiMessage.data[1]);
+      if (this.state.nextNoteMarksSplit) {
+        this.setState({
+          nextNoteMarksSplit: false,
+          noteSplit: midiMessage.data[1]
+        });
       }
     } else if (midiMessage.data[0] === 128) {
       MIDI.noteOff(0, midiMessage.data[1], 0);
@@ -50,17 +55,53 @@ class App extends React.Component {
     }
   }
 
+  _playNote(note) {
+    const foundWaitingNote = this._waitingOnNotes.some(waitingNote => note === waitingNote.note);
+    if (foundWaitingNote) {
+      this._waitingOnNotes = this._waitingOnNotes.filter(waitingNote => note !== waitingNote.note);
+      if (this._waitingOnNotes.length === 0) {
+        MIDIPlayer.resume();
+      }
+    } else {
+      this._notesPlayed.push({ note: note, time: performance.now() });
+      this._notesPlayed = this._notesPlayed.filter(note => {
+        return note.time > performance.now() - 1000;
+      });
+    }
+  }
+
+  _waitOnNote(waitingNote) {
+    const foundNote = this._notesPlayed.some(note => waitingNote === note.note && note.time > performance.now() - 1000);
+    if (foundNote) {
+      this._notesPlayed = this._notesPlayed.filter(note => waitingNote !== note.note);
+    } else {
+      this._waitingOnNotes.push({ note: waitingNote });
+      MIDIPlayer.pause();
+    }
+  }
+
   onSongNotePlayed(note) {
     if (note.subtype === 'noteOff' || note.velocity === 0) {
       this.setState({
         notesBeingPlayed: this.state.notesBeingPlayed.filter(noteBeingPlayed => noteBeingPlayed !== note.note)
       });
+      if (this.state.playType === 'left' && note.note > this.state.noteSplit ||
+        this.state.playType === 'right' && note.note < this.state.noteSplit) {
+        MIDIPlayer.noteOff(0, note.note, note.velocity, 0);
+      }
     } else {
+      if (this.state.playType === 'both' ||
+        this.state.playType === 'left' && note.note <= this.state.noteSplit ||
+        this.state.playType === 'right' && note.note >= this.state.noteSplit) {
+        this._waitOnNote(note.note);
+      } else {
+        MIDIPlayer.noteOn(0, note.note, note.velocity, 0);
+      }
       this.setState({
         notesBeingPlayed: this.state.notesBeingPlayed.concat(note.note)
       });
     }
-    console.log(note);
+    // console.log(note);
   }
 
   render(){
@@ -75,9 +116,14 @@ class App extends React.Component {
           <button onClick={this._play}>Play</button>
           <button onClick={this._pause}>Pause</button>
           <button onClick={this._resume}>Resume</button>
+          <input type='file' onChange={this._onMidiFileSelected} />
+          <button onClick={this._changePlayType}>Playing { this.state.playType }</button>
+          { this.state.playType !== 'both' &&
+            <button onClick={this._markSplitWithNextNote}>Mark Split With Next Note: { MIDI.noteToKey[this.state.noteSplit] }</button>
+          }
         </p>
         <div>
-          <NoteVisualizer notesBeingPlayed={ this.state.notesBeingPlayed } />
+          <NoteVisualizer key={MIDIPlayer.noteUnits().length} notesBeingPlayed={ this.state.notesBeingPlayed } />
         </div>
       </div>
     );
@@ -88,6 +134,7 @@ class App extends React.Component {
     this.setState({
       notesBeingPlayed: []
     });
+    this._waitingOnNotes = [];
   }
 
   _pause = () => {
@@ -96,6 +143,48 @@ class App extends React.Component {
 
   _resume = () => {
     MIDIPlayer.resume();
+  }
+
+  _changePlayType = () => {
+    if (this.state.playType == 'both') {
+      this.setState({
+        playType: 'right'
+      });
+    } else if (this.state.playType === 'right') {
+      this.setState({
+        playType: 'left'
+      });
+    } else if (this.state.playType == 'left') {
+      this.setState({
+        playType: 'none'
+      });
+    } else {
+      this.setState({
+        playType: 'both'
+      });
+    }
+  }
+
+  _onMidiFileSelected = (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      MIDI.Player.loadFile(reader.result);
+      this._notesPlayed = [];
+      this._waitingOnNotes = [];  
+      MIDIPlayer.init();
+      this.setState({});
+    }, false);
+  
+    if (file) {
+      reader.readAsDataURL(file);
+    }
+  }
+
+  _markSplitWithNextNote = () => {
+    this.setState({
+      nextNoteMarksSplit: true
+    });
   }
 }
 

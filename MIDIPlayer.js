@@ -4,11 +4,11 @@ class MIDIPlayerClass {
   constructor() {
     MIDI.loadPlugin({ instrument: 'acoustic_grand_piano' });
     loadSong();
-    this._processNotes();
+    this.init();
     this._noteChecker = this._noteChecker.bind(this);
   }
 
-  _processNotes() {
+  init() {
     this._notes = [];
     let time = 0;
     MIDI.Player.data.forEach(data => {
@@ -24,6 +24,7 @@ class MIDIPlayerClass {
       }
     });
     this.totalPlayTime = this._notes[this._notes.length - 1].time;
+    delete this._songStart;
   }
 
   noteUnits() {
@@ -104,6 +105,10 @@ class MIDIPlayerClass {
 
   _noteChecker() {
     const nowTime = performance.now() - this._songStart;
+    if (nowTime > this.totalPlayTime) {
+      this.pause();
+      return;
+    }
     for (let index = this._notesPlayed; index < this._notes.length; index++) {
       let currentNote = this._notes[index];
       if (nowTime > currentNote.time) {
@@ -122,11 +127,11 @@ class MIDIPlayerClass {
     if (this.onNotePlayed) {
       this.onNotePlayed(note);
     }
-    if (note.subtype === 'noteOn') {
-      this.noteOn(0, note.note, note.velocity, 0);
-    } else if (note.subtype === 'noteOff') {
-      this.noteOff(0, note.note, 0);
-    }
+    // if (note.subtype === 'noteOn') {
+    //   this.noteOn(0, note.note, note.velocity, 0);
+    // } else if (note.subtype === 'noteOff') {
+    //   this.noteOff(0, note.note, 0);
+    // }
   }
 }
 
