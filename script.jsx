@@ -111,7 +111,12 @@ class App extends React.Component {
     } else if (midiMessage.data[0] === 176 && midiMessage.data[1] === 41) {
       this.setState({ playspeed: midiMessage.data[2]});
       localStorage.setItem('playspeed', midiMessage.data[2]);
-      MIDIPlayer.changePlaySpeed(midiMessage.data[2] / 64)
+      MIDIPlayer.changePlaySpeed(midiMessage.data[2] / 64);
+      MIDIPlayer.restart();
+      MIDIPlayer.pause();
+      this._notesPlayed = [];
+      this._waitingOnNotes = [];
+      this._rerenderNotes();
     }
   }
 
@@ -247,6 +252,11 @@ class NoteVisualizer extends React.Component {
     this._canvasScrollerRef = React.createRef();
     this._render = this._render.bind(this);
     this._scrollNotes = this._scrollNotes.bind(this);
+    this._redrawNoteCanvas = this._redrawNoteCanvas.bind(this);
+    this._redrawNoteCanvasRequest;
+    this._renderRequest;
+    this._scrollFrameRequest;
+    this._isDisposed = false;
   }
 
   componentWillReceiveProps() {
@@ -268,18 +278,34 @@ class NoteVisualizer extends React.Component {
     this._notesContext = this._notesRef.current.getContext('2d');
     this._pianoContext = this._pianoRef.current.getContext('2d');
     this._notesRef.current.style.marginTop = -1 * (this._noteCanvasHeight() - this._canvasDisplayHeight()) + 'px';
-    this._redrawNoteCanvas();
-    requestAnimationFrame(this._render);
-    requestAnimationFrame(this._scrollNotes);
+    this._redrawNoteCanvasRequest = requestAnimationFrame(this._redrawNoteCanvas);
+    this._renderRequest = requestAnimationFrame(this._render);
+    this._scrollFrameRequest = requestAnimationFrame(this._scrollNotes);
+  }
+
+  componentWillUnmount() {
+    cancelAnimationFrame(this._renderRequest);
+    cancelAnimationFrame(this._scrollFrameRequest);
+    this._isDisposed = true;
   }
 
   _render() {
-    this._drawPiano(this._pianoContext, this._pianoRef.current.height, this._pianoRef.current.width, this.props.notesBeingPlayed);
+    if (this._isDisposed) {
+      return;
+    }
+    if (this._pianoRef.current) {
+      this._drawPiano(this._pianoContext, this._pianoRef.current.height, this._pianoRef.current.width, this.props.notesBeingPlayed);
+    } else {
+      this._renderRequest = requestAnimationFrame(this._render);
+    }
   }
 
   _scrollNotes() {
+    if (this._isDisposed) {
+      return;
+    }
     this._notesRef.current.style.marginTop = -1 * (this._noteCanvasHeight() - this._canvasDisplayHeight() - MIDIPlayer.currentTime() / 1000 * HEIGHT_PER_SECOND) + 'px';
-    requestAnimationFrame(this._scrollNotes);
+    this._scrollFrameRequest = requestAnimationFrame(this._scrollNotes);
   }
 
   _calculateWidth() {
@@ -299,6 +325,13 @@ class NoteVisualizer extends React.Component {
   }
 
   _redrawNoteCanvas() {
+    if (this._isDisposed) {
+      return;
+    }
+    if (!this._notesRef.current) {
+      this._redrawNoteCanvasRequest = requestAnimationFrame(this._redrawNoteCanvas);
+      return;
+    }
     const ctx = this._notesContext;
     const width = this._notesRef.current.width;
     var TOTAL_KEYS = 88;
