@@ -105,9 +105,11 @@ class App extends React.Component {
       }
     } else if (midiMessage.data[0] === 128) {
       MIDI.noteOff(0, midiMessage.data[1], 0);
-      this.setState({
-        notesBeingPlayed: this.state.notesBeingPlayed.filter(note => note !== midiMessage.data[1])
-      });
+      if (!this._waitingOnNotes.some(waitingNote => midiMessage.data[1] === waitingNote.note)) {
+        this.setState({
+          notesBeingPlayed: this.state.notesBeingPlayed.filter(note => note !== midiMessage.data[1])
+        });
+      }
     } else if (midiMessage.data[0] === 176 && midiMessage.data[1] === 41) {
       this.setState({ playspeed: midiMessage.data[2]});
       localStorage.setItem('playspeed', midiMessage.data[2]);
