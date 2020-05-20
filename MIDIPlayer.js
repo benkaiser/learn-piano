@@ -66,10 +66,8 @@ class MIDIPlayerClass {
   restart() {
     delete this._pauseOffset;
     this._songStart = performance.now();
-    this._originalSongStart = this._songStart;
     this._startLoop();
     this._notesPlayed = 0;
-    this._lastNotePlayTime = 0;
   }
 
   pause() {
@@ -80,7 +78,6 @@ class MIDIPlayerClass {
   resume() {
     if (this._pauseOffset) {
       this._songStart += performance.now() - this._pauseOffset;
-      this._originalSongStart += performance.now() - this._pauseOffset;
       delete this._pauseOffset;
       this._startLoop();
     }
@@ -92,6 +89,23 @@ class MIDIPlayerClass {
 
   noteOff(channel, note, delay) {
     MIDI.noteOff(channel, note, delay);
+  }
+
+  save() {
+    return {
+      notes: this._notes,
+      totalPlayTime: this.totalPlayTime,
+      songStartOffset: this.currentTime(),
+      notesPlayed: this._notesPlayed,
+    };
+  }
+
+  restore(data) {
+    this.restart();
+    this._notes = data.notes;
+    this._songStart = performance.now() - data.songStartOffset;
+    this.totalPlayTime = data.totalPlayTime;
+    this._notesPlayed = data.notesPlayed;
   }
 
   _startLoop() {

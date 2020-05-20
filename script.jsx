@@ -1,6 +1,9 @@
 const TRIMMED_COUNT = 50;
 const RERENDER_WAIT = 300;
 
+const saveButtons = [40, 41, 42, 43, 48, 49, 50, 51];
+const restoreButtons = [36, 37, 38, 39, 44, 45, 46, 47];
+
 class App extends React.Component {
   constructor() {
     super();
@@ -36,6 +39,7 @@ class App extends React.Component {
     };
     this._notesPlayed = [];
     this._waitingOnNotes = [];
+    this._restorePoints = [];
   }
 
   render(){
@@ -119,6 +123,34 @@ class App extends React.Component {
       this._notesPlayed = [];
       this._waitingOnNotes = [];
       this._rerenderNotes();
+    } else if (midiMessage.data[0] === 153) {
+      if (saveButtons.includes(midiMessage.data[1])) {
+        const index = saveButtons.indexOf(midiMessage.data[1]);
+        console.log('Saving slot: ' + index);
+        this._saveSlot(index);
+      } else if (restoreButtons.includes(midiMessage.data[1])) {
+        const index = restoreButtons.indexOf(midiMessage.data[1]);
+        console.log('Restoring slot: ' + index);
+        this._restoreSlot(index);
+      }
+    }
+  }
+
+  _saveSlot(index) {
+    this._restorePoints[index] = {
+      midi: MIDIPlayer.save(),
+    };
+  }
+
+  _restoreSlot(index) {
+    if (this._restorePoints[index]) {
+      this.setState({
+        notesBeingPlayed: []
+      });
+      this._waitingOnNotes = [];
+      MIDIPlayer.restore(this._restorePoints[index].midi);
+    } else {
+      console.log('Nothing saved for restore point');
     }
   }
 
