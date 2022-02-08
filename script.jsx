@@ -1,5 +1,6 @@
 const TRIMMED_COUNT = 50;
 const RERENDER_WAIT = 300;
+const PLAYSPEED_DEBOUNCE = 500;
 
 const saveButtons = [40, 41, 42, 43, 48, 49, 50, 51];
 const restoreButtons = [36, 37, 38, 39, 44, 45, 46, 47];
@@ -28,13 +29,16 @@ class App extends React.Component {
       playspeed = parseInt(playSpeedFromLocalStorage, 10);
       MIDIPlayer.changePlaySpeed(playspeed / 64);
     }
+    const lowNote = parseInt(localStorage.getItem('lowNote') || 21);
+    const highNote = parseInt(localStorage.getItem('highNote') || 108);
+
     MIDIPlayer.onNotePlayed = this.onSongNotePlayed.bind(this);
     this.state = {
       playspeed,
       notesBeingPlayed: [],
       playType: 'both',
-      lowNote: 21,
-      highNote: 108,
+      lowNote: lowNote,
+      highNote: highNote,
       noteVisualizerKey: 0,
     };
     this._notesPlayed = [];
@@ -100,11 +104,13 @@ class App extends React.Component {
             lowNote: midiMessage.data[1],
             lowNoteMarked: true
           });
+          localStorage.setItem('lowNote', midiMessage.data[1]);
         } else {
           this.setState({
             highNote: midiMessage.data[1],
             markExtemeties: false
           });
+          localStorage.setItem('highNote', midiMessage.data[1]);
         }
       }
     } else if (midiMessage.data[0] === 128) {
@@ -117,12 +123,8 @@ class App extends React.Component {
     } else if (midiMessage.data[0] === 176 && midiMessage.data[1] === 41) {
       this.setState({ playspeed: midiMessage.data[2]});
       localStorage.setItem('playspeed', midiMessage.data[2]);
-      MIDIPlayer.changePlaySpeed(midiMessage.data[2] / 64);
-      MIDIPlayer.restart();
-      MIDIPlayer.pause();
-      this._notesPlayed = [];
-      this._waitingOnNotes = [];
-      this._rerenderNotes();
+      this._playSpeedDebounce && clearTimeout(this._playSpeedDebounce);
+      this._playSpeedDebounce = setTimeout(this._changePlaySpeedDebounce.bind(this, midiMessage.data[2] / 64), PLAYSPEED_DEBOUNCE);
     } else if (midiMessage.data[0] === 153) {
       if (saveButtons.includes(midiMessage.data[1])) {
         const index = saveButtons.indexOf(midiMessage.data[1]);
@@ -134,6 +136,15 @@ class App extends React.Component {
         this._restoreSlot(index);
       }
     }
+  }
+
+  _changePlaySpeedDebounce(speed) {
+    MIDIPlayer.changePlaySpeed(speed);
+    MIDIPlayer.restart();
+    MIDIPlayer.pause();
+    this._notesPlayed = [];
+    this._waitingOnNotes = [];
+    this._rerenderNotes();
   }
 
   _saveSlot(index) {
