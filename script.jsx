@@ -383,7 +383,8 @@ class NoteVisualizer extends React.Component {
     var NUM_WHITE_KEYS = 52;
     var NUM_BLACK_KEYS = TOTAL_KEYS - NUM_WHITE_KEYS;
     var WHITE_KEY_WIDTH = (width / NUM_WHITE_KEYS);
-    var BLACK_KEY_WIDTH = WHITE_KEY_WIDTH * .75
+    var BLACK_KEY_WIDTH = WHITE_KEY_WIDTH * .75;
+    var MIN_NOTE_HEIGHT = 3;
     const TOTAL_HEIGHT = this._noteCanvasHeight();
 
     // draw the background
@@ -406,7 +407,14 @@ class NoteVisualizer extends React.Component {
       if (keyInfo.isBlack) {
         xOffset += WHITE_KEY_WIDTH - (BLACK_KEY_WIDTH / 2);
       }
-      ctx.roundRect(xOffset, TOTAL_HEIGHT - (noteUnit.endTime / 1000 * HEIGHT_PER_SECOND), keyInfo.isBlack ? BLACK_KEY_WIDTH : WHITE_KEY_WIDTH, (noteUnit.endTime - noteUnit.startTime) / 1000 * HEIGHT_PER_SECOND, 3).fill();
+      let noteEnd = TOTAL_HEIGHT - (noteUnit.endTime / 1000 * HEIGHT_PER_SECOND);
+      let noteHeight = (noteUnit.endTime - noteUnit.startTime) / 1000 * HEIGHT_PER_SECOND;
+      if (noteHeight < MIN_NOTE_HEIGHT) {
+        const extraHeight = MIN_NOTE_HEIGHT - noteHeight;
+        noteHeight = MIN_NOTE_HEIGHT;
+        noteEnd = noteEnd - extraHeight;
+      }
+      ctx.roundRect(xOffset, noteEnd, keyInfo.isBlack ? BLACK_KEY_WIDTH : WHITE_KEY_WIDTH, noteHeight, noteHeight < 6 ? noteHeight / 2 : 3).fill();
     });
   }
 
